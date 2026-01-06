@@ -8,6 +8,7 @@ tinydb.db
 *.dll
 *.so
 *.dylib
+tinydb
 
 # Test binary, built with `go test -c`
 *.test
