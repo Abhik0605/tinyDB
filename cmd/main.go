@@ -1,3 +1,36 @@
+/*
+TinyDB - A simple SQL database written in Go
+
+# Architecture (Layered)
+
+1. internal/index - B-Tree index (btree.go) for O(log n) key-value operations
+2. internal/storage - mmap-backed KV store (kv.go), page recycling (freelist.go), table abstraction (table.go)
+3. internal/query - SQL parser (sql_parser.go) and executor (executor.go)
+4. cmd/main.go - CLI with REPL and single-command modes
+
+Data Flow: User Input → Parser → AST → Executor → Table → KV → B-Tree → Disk
+
+# main.go
+
+CLI entry point with two modes:
+- Single Command (-e): Execute one SQL statement and exit
+- REPL (default): Interactive prompt with "exit", "quit", "help" commands
+
+Flags:
+
+	-db <path>  Database file (default: "tinydb.db")
+	-e <sql>    Execute single command and exit
+
+Functions:
+
+	main()        - Initialization and execution loop
+	printResult() - Format output (tables for SELECT, row counts for DML)
+	printTable()  - ASCII table rendering
+	printHelp()   - Display SQL syntax
+
+Supported: CREATE TABLE, INSERT, SELECT, UPDATE, DELETE
+Types: TEXT, INT | Operators: =, !=, <, <=, >, >=, AND, OR | Clauses: WHERE, LIMIT
+*/
 package main
 
 import (

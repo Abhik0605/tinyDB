@@ -36,7 +36,7 @@ type KV struct {
 	}
 }
 
-// Open opens or creates the database file
+// opens or creates the database file
 func (db *KV) Open() error {
 	// open or create the file
 	fd, err := createFileSync(db.Path)
@@ -79,7 +79,7 @@ func (db *KV) Open() error {
 	return nil
 }
 
-// Close closes the database file
+// Close closes the database file by closing the file descriptor
 func (db *KV) Close() error {
 	// unmap all chunks
 	for _, chunk := range db.mmap.chunks {
@@ -90,19 +90,19 @@ func (db *KV) Close() error {
 	return unix.Close(db.fd)
 }
 
-// Get retrieves a value by key
+// retrieves a value by searching the key in the btree
 func (db *KV) Get(key []byte) ([]byte, bool) {
 	return db.tree.Get(key)
 }
 
-// Set inserts or updates a key-value pair
+// inserts or updates a key-value pair
 func (db *KV) Set(key []byte, val []byte) error {
 	meta := saveMeta(db)
 	db.tree.Insert(key, val)
 	return updateOrRevert(db, meta)
 }
 
-// Del deletes a key from the database
+// deletes a key from the database
 func (db *KV) Del(key []byte) (bool, error) {
 	meta := saveMeta(db)
 	deleted := db.tree.Delete(key)

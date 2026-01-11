@@ -23,7 +23,14 @@ HEADER (4 bytes): [type(2B) | nkeys(2B)]
 PTRS (8*n bytes): Pointers to child nodes (for internal nodes) or 0 (for leaves)
 
 OFFSETS (2*n bytes): Byte offsets to locate each key-value pair
-KV DATA: Variable-length key-value pairs [klen( ) | vlen(2B) | key | value]
+KV DATA: Variable-length key-value pairs [klen(2B) | vlen(2B) | key | value]
+
+KEY FORMAT: [table_prefix(1B) | primary_key_data...]
+- table_prefix: Identifies which table this key belongs to
+- primary_key_data: Encoded primary key column values
+
+VALUE FORMAT (for leaf nodes): Encoded non-primary key column data
+VALUE FORMAT (for internal nodes): Empty (nil)
 
 TREE GROWTH PROCESS:
 
@@ -102,12 +109,14 @@ func (node BNode) setHeader(btype uint16, nkeys uint16) {
 	binary.LittleEndian.PutUint16(node[2:4], nkeys)
 }
 
-// pointers
+// gets the pointer to the i-th child node
 func (node BNode) getPtr(idx uint16) uint64 {
 	assert(idx < node.nkeys())
 	pos := HEADER + 8*idx
 	return binary.LittleEndian.Uint64(node[pos:])
 }
+
+// sets the pointer to the i-th child node
 func (node BNode) setPtr(idx uint16, val uint64) {
 	assert(idx < node.nkeys())
 	pos := HEADER + 8*idx
@@ -520,7 +529,7 @@ func (tree *BTree) Delete(key []byte) bool {
 	return true
 }
 
-// ForEach iterates over all key-value pairs in the B-tree.
+// ForEach iterates over all key-value pairs in the B-tree
 // The callback function receives the key and value for each pair.
 // If the callback returns false, iteration stops.
 func (tree *BTree) ForEach(cb func(key, val []byte) bool) {
@@ -531,6 +540,9 @@ func (tree *BTree) ForEach(cb func(key, val []byte) bool) {
 }
 
 func treeForEach(tree *BTree, node BNode, cb func(key, val []byte) bool) bool {
+	// Iterate over all keys in the node
+	// Having a custom callback function allows us to use any kind of comparison logic
+	// It allows us to create a more abstract version of iteration
 	nkeys := node.nkeys()
 	switch node.btype() {
 	case BNODE_LEAF:
@@ -556,10 +568,12 @@ func treeForEach(tree *BTree, node BNode, cb func(key, val []byte) bool) bool {
 }
 
 // ForEachWithPrefix iterates over all key-value pairs that have the given prefix.
+// TODO: Need to change the function signature; bad design
 func (tree *BTree) ForEachWithPrefix(prefix []byte, cb func(key, val []byte) bool) {
 	if tree.root == 0 {
 		return
 	}
+	// In this case our callback function is used to filter keys by prefix
 	tree.ForEach(func(key, val []byte) bool {
 		if len(key) >= len(prefix) && bytes.Equal(key[:len(prefix)], prefix) {
 			return cb(key, val)

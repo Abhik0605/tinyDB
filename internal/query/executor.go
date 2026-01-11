@@ -48,6 +48,7 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 	}
 }
 
+// executeSelect executes a SELECT statement
 func (e *Executor) executeSelect(stmt *SelectStmt) (*Result, error) {
 	tdef := e.db.GetTableDef(stmt.Table)
 	if tdef == nil {
@@ -110,6 +111,7 @@ func (e *Executor) executeSelect(stmt *SelectStmt) (*Result, error) {
 	return result, nil
 }
 
+// executeInsert executes an INSERT statement
 func (e *Executor) executeInsert(stmt *InsertStmt) (*Result, error) {
 	tdef := e.db.GetTableDef(stmt.Table)
 	if tdef == nil {
@@ -143,6 +145,7 @@ func (e *Executor) executeInsert(stmt *InsertStmt) (*Result, error) {
 	return &Result{Message: "1 row inserted", RowsAffected: 1}, nil
 }
 
+// executeUpdate executes an UPDATE statement
 func (e *Executor) executeUpdate(stmt *UpdateStmt) (*Result, error) {
 	tdef := e.db.GetTableDef(stmt.Table)
 	if tdef == nil {
@@ -200,6 +203,7 @@ func (e *Executor) executeUpdate(stmt *UpdateStmt) (*Result, error) {
 	}, nil
 }
 
+// executeDelete executes a DELETE statement
 func (e *Executor) executeDelete(stmt *DeleteStmt) (*Result, error) {
 	tdef := e.db.GetTableDef(stmt.Table)
 	if tdef == nil {
@@ -255,6 +259,7 @@ func (e *Executor) executeDelete(stmt *DeleteStmt) (*Result, error) {
 	}, nil
 }
 
+// executeCreateTable executes a CREATE TABLE statement
 func (e *Executor) executeCreateTable(stmt *CreateTableStmt) (*Result, error) {
 	// Build TableDef
 	tdef := &storage.TableDef{
@@ -332,6 +337,7 @@ func (e *Executor) evaluateWhere(expr *WhereExpr, rec storage.Record, tdef *stor
 	}
 }
 
+// evaluateComparison evaluates a comparison expression against a record
 func (e *Executor) evaluateComparison(expr *WhereExpr, rec storage.Record, tdef *storage.TableDef) (bool, error) {
 	val := rec.Get(expr.Column)
 	if val == nil {
@@ -363,6 +369,7 @@ func (e *Executor) evaluateComparison(expr *WhereExpr, rec storage.Record, tdef 
 	}
 }
 
+// compareResult compares two values using the given operator
 func compareResult(cmp int, op string) bool {
 	switch op {
 	case "=":

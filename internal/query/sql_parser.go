@@ -119,6 +119,7 @@ func NewLexer(input string) *Lexer {
 	return &Lexer{input: input, pos: 0}
 }
 
+// Peek returns the next character without advancing the position
 func (l *Lexer) peek() byte {
 	if l.pos >= len(l.input) {
 		return 0
@@ -126,18 +127,21 @@ func (l *Lexer) peek() byte {
 	return l.input[l.pos]
 }
 
+// Advance moves the position forward by one character
 func (l *Lexer) advance() byte {
 	ch := l.peek()
 	l.pos++
 	return ch
 }
 
+// skipWhitespace skips over whitespace characters by advancing the position
 func (l *Lexer) skipWhitespace() {
 	for l.pos < len(l.input) && unicode.IsSpace(rune(l.input[l.pos])) {
 		l.pos++
 	}
 }
 
+// NextToken returns the next token in the input
 func (l *Lexer) NextToken() Token {
 	l.skipWhitespace()
 
@@ -210,11 +214,12 @@ func (l *Lexer) NextToken() Token {
 	return Token{TOK_EOF, ""}
 }
 
+// readString reads a string literal
 func (l *Lexer) readString() Token {
 	l.advance() // skip opening quote
 	start := l.pos
 	for l.pos < len(l.input) && l.input[l.pos] != '\'' {
-		l.pos++
+		l.pos++ // position of the next character
 	}
 	value := l.input[start:l.pos]
 	if l.pos < len(l.input) {
@@ -244,16 +249,18 @@ func (l *Lexer) readIdent() Token {
 
 // Parser parses SQL statements
 type Parser struct {
-	lexer   *Lexer
-	current Token
+	lexer   *Lexer // lexer for the input
+	current Token  // current token
 }
 
+// NewParser creates a new Parser by lexing the input
 func NewParser(input string) *Parser {
 	p := &Parser{lexer: NewLexer(input)}
 	p.current = p.lexer.NextToken()
 	return p
 }
 
+// advance moves to the next token; TODO: change names as the lexer also has advance
 func (p *Parser) advance() {
 	p.current = p.lexer.NextToken()
 }
@@ -266,14 +273,17 @@ func (p *Parser) expect(typ TokenType) error {
 	return nil
 }
 
+// expectKeyword checks if the current token is a IDENT with the given value and advances to the next token
 func (p *Parser) expectKeyword(keyword string) error {
 	if p.current.Type != TOK_IDENT || !strings.EqualFold(p.current.Value, keyword) {
 		return fmt.Errorf("expected keyword '%s', got '%s'", keyword, p.current.Value)
 	}
+	// TODO: does this belong here? functions should have a single responsibility
 	p.advance()
 	return nil
 }
 
+// isKeyword checks if the current token is a IDENT with the given value
 func (p *Parser) isKeyword(keyword string) bool {
 	return p.current.Type == TOK_IDENT && strings.EqualFold(p.current.Value, keyword)
 }
@@ -284,6 +294,7 @@ func ParseSQL(sql string) (Statement, error) {
 	return p.parseStatement()
 }
 
+// parseStatement parses a SQL statement and returns a Statement
 func (p *Parser) parseStatement() (Statement, error) {
 	if p.isKeyword("SELECT") {
 		return p.parseSelect()
@@ -304,6 +315,7 @@ func (p *Parser) parseStatement() (Statement, error) {
 }
 
 func (p *Parser) parseSelect() (*SelectStmt, error) {
+	// checks key word and advances to the next token in the expectKeyword function
 	if err := p.expectKeyword("SELECT"); err != nil {
 		return nil, err
 	}

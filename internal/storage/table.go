@@ -13,29 +13,34 @@ const (
 
 // table cell
 type Value struct {
-	Type uint32 // tagged union
+	Type uint32 // tagged union values: TYPE_BYTES, TYPE_INT64; 0 means null
 	I64  int64
 	Str  []byte
 }
 
 // table row
 type Record struct {
-	Cols []string
-	Vals []Value
+	Cols []string // column names
+	Vals []Value  // column values
 }
 
+// row level operations
+
+// Adds a string value to the record
 func (rec *Record) AddStr(col string, val []byte) *Record {
 	rec.Cols = append(rec.Cols, col)
 	rec.Vals = append(rec.Vals, Value{Type: TYPE_BYTES, Str: val})
 	return rec
 }
 
+// Adds an int64 value to the record
 func (rec *Record) AddInt64(col string, val int64) *Record {
 	rec.Cols = append(rec.Cols, col)
 	rec.Vals = append(rec.Vals, Value{Type: TYPE_INT64, I64: val})
 	return rec
 }
 
+// Gets the value for the given column
 func (rec *Record) Get(col string) *Value {
 	for i, c := range rec.Cols {
 		if c == col {
@@ -45,6 +50,12 @@ func (rec *Record) Get(col string) *Value {
 	return nil
 }
 
+// table definition
+//
+// Prefix is used to distinguish different tables in the key space
+// 1, 2 are reserved for meta tables
+// 3, 4, 5, ... are for user tables
+
 type TableDef struct {
 	// user defined
 	Name  string
@@ -52,7 +63,7 @@ type TableDef struct {
 	Cols  []string // column names
 	PKeys int      // the first `PKeys` columns are the primary key
 	// auto-assigned B-tree key prefixes for different tables
-	Prefix uint32
+	Prefix uint32 // table prefix
 }
 
 var TDEF_TABLE = &TableDef{
@@ -72,23 +83,24 @@ var TDEF_META = &TableDef{
 }
 
 type DB struct {
-	Path string
-	kv   KV
+	Path string // file path
+	kv   KV     // key-value store
 }
 
+// TODO: move this to utils
 func assert(cond bool) {
 	if !cond {
 		panic("assertion failed")
 	}
 }
 
-// Open opens the database
+// Opens the database by opening the file
 func (db *DB) Open() error {
 	db.kv.Path = db.Path
 	return db.kv.Open()
 }
 
-// Close closes the database
+// Closes the database by closing the file
 func (db *DB) Close() error {
 	return db.kv.Close()
 }
@@ -100,9 +112,9 @@ func dbGet(db *DB, tdef *TableDef, rec *Record) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	// 2. encode the primary key
+	// 2. encode the primary key for btree lookup
 	key := encodeKey(nil, tdef.Prefix, values[:tdef.PKeys])
-	// 3. query the KV store
+	// 3. query the KV store to get the value of the row
 	val, ok := db.kv.Get(key)
 	if !ok {
 		return false, nil
@@ -120,6 +132,7 @@ func dbGet(db *DB, tdef *TableDef, rec *Record) (bool, error) {
 // reorder a record and check for missing columns.
 // n == tdef.PKeys: record is exactly a primary key
 // n == len(tdef.Cols): record contains all columns
+// returns the values of the record in the table schema order
 func checkRecord(tdef *TableDef, rec Record, n int) ([]Value, error) {
 	values := make([]Value, len(tdef.Cols))
 	for i, col := range rec.Cols {
@@ -146,8 +159,7 @@ func checkRecord(tdef *TableDef, rec Record, n int) ([]Value, error) {
 	return values, nil
 }
 
-// encode a list of values into a key
-// encode columns for the "key" of the KV
+// encode a list of values of primary key into a byte array
 func encodeKey(out []byte, prefix uint32, vals []Value) []byte {
 	out = append(out, byte(prefix))
 	for _, v := range vals {
@@ -168,7 +180,7 @@ func encodeKey(out []byte, prefix uint32, vals []Value) []byte {
 	return out
 }
 
-// decode a list of values from a key
+// decode a list of values of primary key from a byte array
 func decodeKey(out []Value, key []byte) []Value {
 	_ = key[0] // skip prefix
 	for i := 1; i < len(key); {
@@ -189,6 +201,7 @@ func decodeKey(out []Value, key []byte) []Value {
 }
 
 // encode values for storage (non-key columns)
+// TODO: Combine with encodeKey?
 func encodeValues(out []byte, vals []Value) []byte {
 	for _, v := range vals {
 		switch v.Type {
@@ -231,6 +244,8 @@ func (db *DB) Get(table string, rec *Record) (bool, error) {
 	}
 	return dbGet(db, tdef, rec)
 }
+
+// get table definition by name
 func getTableDef(db *DB, name string) *TableDef {
 	rec := (&Record{}).AddStr("name", []byte(name))
 	ok, err := dbGet(db, TDEF_TABLE, rec)
@@ -245,23 +260,27 @@ func getTableDef(db *DB, name string) *TableDef {
 }
 
 // update modes
+// TODO: move to common config file
 const (
 	MODE_UPSERT      = 0 // insert or replace
 	MODE_UPDATE_ONLY = 1 // update existing keys
 	MODE_INSERT_ONLY = 2 // only add new keys
 )
 
+// updates a row in the table
 func dbUpdate(db *DB, tdef *TableDef, rec Record, mode int) (bool, error) {
 	values, err := checkRecord(tdef, rec, len(tdef.Cols))
 	if err != nil {
 		return false, err
 	}
+	// Here the key is the prefix + primary key columns in the btree
 	key := encodeKey(nil, tdef.Prefix, values[:tdef.PKeys])
+	// The value is the non-key columns
 	val := encodeValues(nil, values[tdef.PKeys:])
 	return db.kv.Update(key, val, mode)
 }
 
-// TableNew creates a new table definition
+// creates a new table definition
 func (db *DB) TableNew(tdef *TableDef) error {
 	// Assign a new prefix for the table
 	tdef.Prefix = db.getNextPrefix()
@@ -283,12 +302,35 @@ func (db *DB) TableNew(tdef *TableDef) error {
 
 // getNextPrefix returns the next available table prefix
 func (db *DB) getNextPrefix() uint32 {
-	// Start from 3 since 1 and 2 are reserved for meta tables
-	// In a real implementation, we would track this in the meta table
-	return 3
+	// Get current max prefix from meta table
+	rec := (&Record{}).AddStr("key", []byte("next_table_prefix"))
+	ok, err := dbGet(db, TDEF_META, rec)
+
+	// Initialize nextPrefix to 3
+	var nextPrefix uint32 = 3 // Start from 3 (1,2 reserved)
+	// If the key exists, parse the stored value
+	if ok && err == nil {
+		// Parse stored value
+		nextPrefix = uint32(binary.LittleEndian.Uint64(rec.Get("val").Str))
+	}
+
+	// Store incremented value back to meta table
+	newVal := make([]byte, 8)
+	binary.LittleEndian.PutUint64(newVal, uint64(nextPrefix+1))
+	dbUpdate(db, TDEF_META, Record{
+		Cols: []string{"key", "val"},
+		Vals: []Value{
+			{Type: TYPE_BYTES, Str: []byte("next_table_prefix")},
+			{Type: TYPE_BYTES, Str: newVal},
+		},
+	}, MODE_UPSERT)
+
+	return nextPrefix
 }
 
-// Insert inserts a new row into the table
+// Methods for CRUD operations used by the query engine
+
+// inserts a new row into the table
 func (db *DB) Insert(table string, rec Record) (bool, error) {
 	tdef := getTableDef(db, table)
 	if tdef == nil {
@@ -297,7 +339,7 @@ func (db *DB) Insert(table string, rec Record) (bool, error) {
 	return dbUpdate(db, tdef, rec, MODE_INSERT_ONLY)
 }
 
-// Update updates an existing row in the table
+// updates an existing row in the table
 func (db *DB) Update(table string, rec Record) (bool, error) {
 	tdef := getTableDef(db, table)
 	if tdef == nil {
@@ -381,21 +423,7 @@ func (sc *Scanner) decodeRow(key, val []byte) Record {
 	}
 
 	// Decode primary key columns from key
-	pos := 1 // skip prefix byte
-	for i := 0; i < sc.tdef.PKeys; i++ {
-		t := uint32(key[pos])
-		pos++
-		switch t {
-		case TYPE_BYTES:
-			slen := binary.LittleEndian.Uint16(key[pos:])
-			pos += 2
-			rec.Vals[i].Str = key[pos : pos+int(slen)]
-			pos += int(slen)
-		case TYPE_INT64:
-			rec.Vals[i].I64 = int64(binary.LittleEndian.Uint64(key[pos:]))
-			pos += 8
-		}
-	}
+	decodeKey(rec.Vals, key)
 
 	// Decode non-key columns from value
 	decodeValues(val, rec.Vals[sc.tdef.PKeys:])
